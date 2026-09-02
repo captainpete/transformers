@@ -1285,7 +1285,7 @@ class GenerationMixin(ContinuousMixin):
                     EncoderRepetitionPenaltyLogitsProcessor(
                         penalty=generation_config.encoder_repetition_penalty,
                         encoder_input_ids=encoder_input_ids,
-                        normalize=bool(generation_config.encoder_repetition_penalty_normalize),
+                        normalize=generation_config.encoder_repetition_penalty_normalize is True,
                     )
                 )
             else:
@@ -1298,7 +1298,7 @@ class GenerationMixin(ContinuousMixin):
             processors.append(
                 RepetitionPenaltyLogitsProcessor(
                     penalty=generation_config.repetition_penalty,
-                    normalize=bool(generation_config.repetition_penalty_normalize),
+                    normalize=generation_config.repetition_penalty_normalize is True,
                 )
             )
             if not self.config.is_encoder_decoder and (input_ids_seq_length is None or input_ids_seq_length == 0):
