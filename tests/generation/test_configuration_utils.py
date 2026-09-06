@@ -239,6 +239,30 @@ class GenerationConfigTest(unittest.TestCase):
         self.assertTrue(len(captured_logs.out) > 400)  # long log
         self.assertNotIn("Set `TRANSFORMERS_VERBOSITY=info` for more details", captured_logs.out)
 
+        # `*_normalize` flags warn when their penalty is inactive or under beam search (which already normalizes),
+        # and are silent with an active penalty under greedy/sampled decoding.
+        logger.warning_once.cache_clear()
+        with CaptureLogger(logger) as captured_logs:
+            GenerationConfig(repetition_penalty=1.3, repetition_penalty_normalize=True)
+            GenerationConfig(encoder_repetition_penalty=1.3, encoder_repetition_penalty_normalize=True)
+        self.assertEqual(len(captured_logs.out), 0)
+        for kwargs in (
+            {"repetition_penalty_normalize": True},
+            {"repetition_penalty": 1.0, "repetition_penalty_normalize": True},
+            {"encoder_repetition_penalty_normalize": True},
+            {"num_beams": 2, "repetition_penalty": 1.3, "repetition_penalty_normalize": True},
+        ):
+            logger.warning_once.cache_clear()
+            with CaptureLogger(logger) as captured_logs:
+                GenerationConfig(**kwargs)
+            self.assertNotEqual(len(captured_logs.out), 0, kwargs)
+        # Provenance: a flag inherited from a model's config is harmless when the user explicitly disables the penalty.
+        base_config = GenerationConfig(repetition_penalty=1.3, repetition_penalty_normalize=True)
+        logger.warning_once.cache_clear()
+        with CaptureLogger(logger) as captured_logs:
+            base_config.update(repetition_penalty=1.0)
+        self.assertEqual(len(captured_logs.out), 0)
+
         # Finally, we can set `strict=True` to raise an exception on what would otherwise be a warning.
         generation_config = GenerationConfig()
         generation_config.temperature = 0.5

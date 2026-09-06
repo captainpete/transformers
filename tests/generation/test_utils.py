@@ -3420,6 +3420,53 @@ class GenerationIntegrationTests(unittest.TestCase):
             torch.allclose(out_minus.scores[0].softmax(-1), out_plus.scores[0].softmax(-1), rtol=1e-4, atol=1e-6)
         )
 
+    def test_generate_encoder_repetition_penalty_normalize(self):
+        """
+        `encoder_repetition_penalty_normalize=True` must reach the encoder processor through `generate()`. On a
+        decoder-only model the encoder ids are the prompt, whose tokens the penalty boosts in log-probability space;
+        as above, the normalized form must be invariant to a constant shift of the logits.
+        """
+        torch.manual_seed(0)
+        config = GPT2Config(
+            n_layer=1, n_head=1, n_embd=8, vocab_size=16, n_positions=32, bos_token_id=None, eos_token_id=None
+        )
+        model = GPT2LMHeadModel(config).to(torch_device).eval()
+        input_ids = torch.tensor([[3, 5, 3, 7]], device=torch_device)
+        generation_kwargs = {
+            "do_sample": False,
+            "max_new_tokens": 6,
+            "encoder_repetition_penalty": 1.3,
+            "output_scores": True,
+            "return_dict_in_generate": True,
+        }
+
+        def generate_with_logit_shift(shift, **kwargs):
+            hook = model.lm_head.register_forward_hook(lambda module, args, output: output + shift)
+            try:
+                return model.generate(input_ids, **generation_kwargs, **kwargs)
+            finally:
+                hook.remove()
+
+        # wiring: the first-step scores are the log-probabilities with the prompt tokens divided by the penalty
+        with torch.no_grad():
+            log_probs = F.log_softmax(model(input_ids).logits[:, -1, :], dim=-1)
+        expected = log_probs.clone()
+        expected[0, input_ids[0]] = log_probs[0, input_ids[0]] / 1.3
+        out = generate_with_logit_shift(0.0, encoder_repetition_penalty_normalize=True)
+        torch.testing.assert_close(out.scores[0], expected, rtol=1e-4, atol=1e-6)
+
+        # gauge invariance under the normalized penalty, and the raw-logit control that is not invariant
+        out_minus = generate_with_logit_shift(-5.0, encoder_repetition_penalty_normalize=True)
+        out_plus = generate_with_logit_shift(+5.0, encoder_repetition_penalty_normalize=True)
+        self.assertTrue(torch.equal(out_minus.sequences, out_plus.sequences))
+        for scores_minus, scores_plus in zip(out_minus.scores, out_plus.scores):
+            torch.testing.assert_close(scores_minus.softmax(-1), scores_plus.softmax(-1), rtol=1e-4, atol=1e-6)
+        out_minus = generate_with_logit_shift(-5.0)
+        out_plus = generate_with_logit_shift(+5.0)
+        self.assertFalse(
+            torch.allclose(out_minus.scores[0].softmax(-1), out_plus.scores[0].softmax(-1), rtol=1e-4, atol=1e-6)
+        )
+
     @slow
     def test_beam_search_early_stop_heuristic(self):
         """Regression test for #38778 (early stopping needs to be tracked at a batch level)"""
