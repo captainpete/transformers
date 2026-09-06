@@ -330,8 +330,11 @@ class RepetitionPenaltyLogitsProcessor(LogitsProcessor):
         prompt_ignore_length (`int`, *optional*):
             The original input ids sequence length, which if provided, will not be used in the penalty calculation.
         normalize (`bool`, *optional*, defaults to `False`):
-            Apply the penalty to normalized log-probabilities instead of raw logits. See [this
-            paper](https://arxiv.org/abs/2607.09791) for more details.
+            Apply the penalty to normalized log-probabilities instead of raw logits, which makes it independent of the
+            arbitrary zero-point of the logits. The processor then returns log-probabilities for the whole vocabulary,
+            so any processor applied after it receives log-probabilities, as they already do under beam search. The
+            same `penalty` suppresses repetition much less on log-probabilities than on raw logits, so values tuned for
+            the default mode do not carry over. See [this paper](https://arxiv.org/abs/2607.09791) for more details.
 
     Examples:
 
@@ -448,8 +451,9 @@ class EncoderRepetitionPenaltyLogitsProcessor(LogitsProcessor):
         encoder_input_ids (`torch.LongTensor`):
             The encoder_input_ids that should be repeated within the decoder ids.
         normalize (`bool`, *optional*, defaults to `False`):
-            Apply the penalty to the normalized log-probabilities instead of the raw logits.
-            See [`RepetitionPenaltyLogitsProcessor`] and [this paper](https://arxiv.org/abs/2607.09791) for more details.
+            Apply the penalty to the normalized log-probabilities instead of the raw logits. See
+            [`RepetitionPenaltyLogitsProcessor`] for the considerations that apply, and [this
+            paper](https://arxiv.org/abs/2607.09791) for more details.
 
     Examples:
 

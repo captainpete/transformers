@@ -224,14 +224,19 @@ class GenerationConfig(PushToHubMixin):
             The parameter for repetition penalty. 1.0 means no penalty. See [this
             paper](https://huggingface.co/papers/1909.05858) for more details.
         repetition_penalty_normalize (`bool`, *optional*):
-            Apply `repetition_penalty` to normalized log-probabilities instead of raw logits.
-            See [this paper](https://arxiv.org/abs/2607.09791) for more details.
+            Apply `repetition_penalty` to normalized log-probabilities instead of raw logits, which makes the penalty
+            independent of the arbitrary zero-point of the logits. The processor then outputs log-probabilities, so
+            every logits processor after it receives log-probabilities, as they already do under beam search. A given
+            `repetition_penalty` suppresses repetition much less on log-probabilities than on raw logits, so values
+            tuned for the default mode do not carry over and should be recalibrated per model; the strongest raw-logit
+            settings may not be reachable at any value. See [this paper](https://arxiv.org/abs/2607.09791) for more
+            details.
         encoder_repetition_penalty (`float`, *optional*):
             The parameter for encoder_repetition_penalty. An exponential penalty on sequences that are not in the
             original input. 1.0 means no penalty.
         encoder_repetition_penalty_normalize (`bool`, *optional*):
-            Apply `encoder_repetition_penalty` to normalized log-probabilities instead of raw logits.
-            See [this paper](https://arxiv.org/abs/2607.09791) for more details.
+            Apply `encoder_repetition_penalty` to normalized log-probabilities instead of raw logits. The same
+            considerations as for `repetition_penalty_normalize` apply.
         length_penalty (`float`, *optional*):
             Exponential penalty to the length that is used with beam-based generation. It is applied as an exponent to
             the sequence length, which in turn is used to divide the score of the sequence. Since the score is the log
@@ -792,6 +797,36 @@ class GenerationConfig(PushToHubMixin):
                 minor_issues["length_penalty"] = single_beam_wrong_parameter_msg.format(
                     num_beams=self.num_beams, flag_name="length_penalty", flag_value=self.length_penalty
                 )
+
+        # 2.3. detect `*_normalize` flags that have no effect: the paired penalty is inactive (so its processor is never
+        # built), or beam search is on (it already applies the processor chain to log-probabilities). Same provenance
+        # filtering as above.
+        inactive_penalty_msg = (
+            "`{penalty_name}` is not set (or is set to 1.0). However, `{flag_name}` is set to `True` -- this flag only "
+            "changes how `{penalty_name}` is applied. You should set `{penalty_name}` or unset `{flag_name}`."
+        )
+        beam_normalize_msg = (
+            "`num_beams` is set to {num_beams}. However, `{flag_name}` is set to `True` -- beam search already applies "
+            "its logits processors to log-probabilities, so this flag has no additional effect there. You should unset "
+            "`{flag_name}` or set `num_beams=1`."
+        )
+        for flag_name, penalty_name in (
+            ("repetition_penalty_normalize", "repetition_penalty"),
+            ("encoder_repetition_penalty_normalize", "encoder_repetition_penalty"),
+        ):
+            if getattr(self, flag_name) is not True:
+                continue
+            penalty_value = getattr(self, penalty_name)
+            if (penalty_value is None or penalty_value == 1.0) and _should_warn(
+                penalty_name, flag_name, user_set_attributes
+            ):
+                minor_issues[flag_name] = inactive_penalty_msg.format(penalty_name=penalty_name, flag_name=flag_name)
+            elif (
+                self.num_beams is not None
+                and self.num_beams > 1
+                and _should_warn("num_beams", flag_name, user_set_attributes)
+            ):
+                minor_issues[flag_name] = beam_normalize_msg.format(num_beams=self.num_beams, flag_name=flag_name)
 
         # 2.4. check `num_return_sequences`
         if self.num_return_sequences is not None and self.num_return_sequences > 1:
