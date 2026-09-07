@@ -532,6 +532,45 @@ class GenerationConfigSerializationTest(unittest.TestCase):
         self.assertEqual(rep_penalty_proc.penalty, 1 / penalty)
         torch.testing.assert_close(rep_penalty_proc.encoder_input_ids, input_ids)
 
+    def test_serialize_generation_repetition_penalty_normalize(self):
+        """Tests that GenerationConfig serializes repetition_penalty_normalize and it reaches RepetitionPenaltyLogitsProcessor"""
+        penalty = 2.0
+
+        generation_config = GenerationConfig(repetition_penalty=penalty, repetition_penalty_normalize=True)
+        with tempfile.TemporaryDirectory("test-generation-config") as tmp_dir:
+            generation_config.save_pretrained(tmp_dir)
+            new_config = GenerationConfig.from_pretrained(tmp_dir)
+        self.assertEqual(new_config.repetition_penalty, penalty)
+        self.assertIs(new_config.repetition_penalty_normalize, True)
+
+        rep_penalty_proc = RepetitionPenaltyLogitsProcessor(
+            penalty=new_config.repetition_penalty, normalize=new_config.repetition_penalty_normalize is True
+        )
+        self.assertEqual(rep_penalty_proc.penalty, penalty)
+        self.assertTrue(rep_penalty_proc.normalize)
+
+    def test_serialize_generation_encoder_repetition_penalty_normalize(self):
+        """Tests that GenerationConfig serializes encoder_repetition_penalty_normalize and it reaches the encoder processor"""
+        penalty = 2.0
+        input_ids = torch.tensor([[0, 1], [5, 0]], device=torch_device, dtype=torch.long)
+
+        generation_config = GenerationConfig(
+            encoder_repetition_penalty=penalty, encoder_repetition_penalty_normalize=True
+        )
+        with tempfile.TemporaryDirectory("test-generation-config") as tmp_dir:
+            generation_config.save_pretrained(tmp_dir)
+            new_config = GenerationConfig.from_pretrained(tmp_dir)
+        self.assertEqual(new_config.encoder_repetition_penalty, penalty)
+        self.assertIs(new_config.encoder_repetition_penalty_normalize, True)
+
+        rep_penalty_proc = EncoderRepetitionPenaltyLogitsProcessor(
+            penalty=new_config.encoder_repetition_penalty,
+            encoder_input_ids=input_ids,
+            normalize=new_config.encoder_repetition_penalty_normalize is True,
+        )
+        self.assertEqual(rep_penalty_proc.penalty, 1 / penalty)
+        self.assertTrue(rep_penalty_proc.normalize)
+
     def test_serialize_generation_top_p(self):
         """Tests that GenerationConfig is serialized and TopPLogitsWarper is initialized with top_p"""
         top_p = 0.8
